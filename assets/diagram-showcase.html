@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{DIAGRAM_TITLE}} — Diagram Showcase</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            background: #0a0a0a;
+            color: #e5e5e5;
+            overflow-x: hidden;
+        }
+
+        .font-mono {
+            font-family: 'JetBrains Mono', 'Courier New', monospace;
+        }
+
+        /* Grain texture overlay */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+            pointer-events: none;
+            z-index: 9999;
+        }
+
+        html { scroll-behavior: smooth; }
+
+        /* Card hover */
+        .style-card {
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            background: rgba(255, 255, 255, 0.02);
+        }
+        .style-card:hover {
+            transform: translateY(-6px);
+            border-color: rgba(255, 255, 255, 0.12);
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        /* Image hover */
+        .showcase-img {
+            transition: transform 0.5s ease, box-shadow 0.5s ease;
+        }
+        .showcase-img:hover {
+            transform: scale(1.03);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Download button */
+        .btn-download {
+            transition: all 0.3s ease;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            background: transparent;
+            color: rgba(255, 255, 255, 0.6);
+        }
+        .btn-download:hover {
+            border-color: rgba(255, 255, 255, 0.4);
+            color: #fff;
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        /* Divider animation */
+        .divider-line {
+            width: 0; height: 1px;
+            background: rgba(255, 255, 255, 0.15);
+            transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .style-card:hover .divider-line {
+            width: 100%;
+        }
+
+        .tracking-ultra-wide { letter-spacing: 0.2em; }
+    </style>
+</head>
+<body>
+
+    <div class="min-h-screen flex flex-col items-center py-20 px-6">
+
+        <!-- Header -->
+        <div class="text-center mb-20 max-w-3xl">
+            <h1 class="text-5xl md:text-6xl font-extralight tracking-wider mb-6 text-white">
+                {{DIAGRAM_TITLE}}
+            </h1>
+            <p class="font-mono text-xs opacity-30 uppercase tracking-ultra-wide mb-8">
+                Diagram Showcase — Multi-style Rendering
+            </p>
+            <div class="w-12 h-[1px] bg-white mx-auto opacity-20"></div>
+        </div>
+
+        <!-- Style Cards Grid -->
+        <div class="max-w-7xl w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mb-32">
+
+            {{STYLE_CARDS}}
+
+        </div>
+
+        <!-- Footer -->
+        <div class="mt-16 text-center">
+            <p class="font-mono text-xs opacity-20 uppercase tracking-ultra-wide leading-loose">
+                Generated with Drawio Skill<br>
+                {{YEAR}}
+            </p>
+        </div>
+
+    </div>
+
+</body>
+</html>
+
+<!--
+STYLE_CARD TEMPLATE — 每张卡片用以下 HTML 替换到 {{STYLE_CARDS}} 位置：
+
+<div class="style-card rounded-xl overflow-hidden p-1">
+    <div class="relative overflow-hidden rounded-lg">
+        <img src="{{IMAGE_PATH}}" alt="{{STYLE_NAME}}"
+             class="showcase-img w-full aspect-video object-cover rounded-lg" />
+    </div>
+    <div class="p-5">
+        <div class="flex items-center justify-between mb-3">
+            <h2 class="text-sm font-medium tracking-wider uppercase text-white">
+                {{STYLE_NAME}}
+            </h2>
+            <span class="font-mono text-[10px] opacity-30 tracking-wider">
+                {{STYLE_KEY}}
+            </span>
+        </div>
+        <div class="divider-line mb-3"></div>
+        <p class="text-xs leading-relaxed opacity-40 mb-4">
+            {{STYLE_DESCRIPTION}}
+        </p>
+        <a href="{{IMAGE_PATH}}" download
+           class="btn-download inline-flex items-center gap-2 px-4 py-2 rounded-md text-xs font-mono tracking-wider">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            DOWNLOAD
+        </a>
+    </div>
+</div>
+
+变量说明：
+- {{IMAGE_PATH}}: 展示图路径，如 output/diagram_void.png
+- {{STYLE_NAME}}: 风格名称，如 THE VOID
+- {{STYLE_KEY}}: 风格 key，如 void
+- {{STYLE_DESCRIPTION}}: 适用场景说明
+-->

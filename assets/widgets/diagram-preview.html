@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Diagram Preview</title>
+<!-- DATA_INJECTION_POINT: Agent will insert <script>window.__SKILL_DATA__ = {...};</script> here -->
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f8f9fa; color: #333; overflow: hidden; height: 100vh;
+    display: flex; flex-direction: column;
+  }
+
+  /* Info overlay - top left */
+  .info-panel {
+    position: absolute; top: 12px; left: 12px; z-index: 10;
+    background: rgba(255,255,255,0.92); border: 1px solid #dee2e6;
+    border-radius: 6px; padding: 8px 12px; font-size: 12px;
+    line-height: 1.5; box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    max-width: 280px; pointer-events: none;
+  }
+  .info-panel .title { font-weight: 600; font-size: 13px; color: #1a1a1a; }
+  .info-panel .meta { color: #666; }
+
+  /* Zoom indicator - bottom right */
+  .zoom-indicator {
+    position: absolute; bottom: 52px; right: 12px; z-index: 10;
+    background: rgba(255,255,255,0.92); border: 1px solid #dee2e6;
+    border-radius: 4px; padding: 4px 10px; font-size: 12px;
+    font-variant-numeric: tabular-nums; color: #555;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08); pointer-events: none;
+  }
+
+  /* Canvas area */
+  .canvas-wrapper {
+    flex: 1; position: relative; overflow: hidden;
+    cursor: grab;
+    /* Checkerboard transparency pattern */
+    background-image:
+      linear-gradient(45deg, #e8e8e8 25%, transparent 25%),
+      linear-gradient(-45deg, #e8e8e8 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #e8e8e8 75%),
+      linear-gradient(-45deg, transparent 75%, #e8e8e8 75%);
+    background-size: 20px 20px;
+    background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+    background-color: #f0f0f0;
+  }
+  .canvas-wrapper.dragging { cursor: grabbing; }
+
+  .canvas-content {
+    position: absolute; top: 0; left: 0;
+    transform-origin: 0 0;
+    will-change: transform;
+  }
+  .canvas-content img {
+    display: block; max-width: none;
+    user-select: none; -webkit-user-drag: none;
+  }
+  .canvas-content .svg-container { display: block; }
+  .canvas-content .svg-container svg {
+    display: block; max-width: none;
+  }
+
+  /* Tabs bar */
+  .tabs-bar {
+    display: none; /* shown when >1 page */
+    height: 40px; background: #fff; border-top: 1px solid #dee2e6;
+    align-items: center; padding: 0 12px; gap: 2px;
+    overflow-x: auto; flex-shrink: 0;
+  }
+  .tabs-bar.visible { display: flex; }
+  .tab-btn {
+    background: none; border: none; border-bottom: 2px solid transparent;
+    padding: 8px 14px; font-size: 13px; color: #666;
+    cursor: pointer; white-space: nowrap; border-radius: 4px 4px 0 0;
+    transition: background 0.15s, color 0.15s;
+  }
+  .tab-btn:hover { background: #f0f1f3; color: #333; }
+  .tab-btn.active {
+    color: #1a73e8; border-bottom-color: #1a73e8; font-weight: 500;
+  }
+
+  /* Spinner */
+  .spinner-overlay {
+    position: absolute; inset: 0; z-index: 20;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(248,249,250,0.85);
+  }
+  .spinner-overlay.hidden { display: none; }
+  .spinner {
+    width: 36px; height: 36px;
+    border: 3px solid #dee2e6; border-top-color: #1a73e8;
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Error */
+  .error-overlay {
+    position: absolute; inset: 0; z-index: 20;
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 8px; color: #999;
+    background: rgba(248,249,250,0.9);
+  }
+  .error-overlay.hidden { display: none; }
+  .error-overlay .error-icon { font-size: 36px; }
+  .error-overlay .error-text { font-size: 14px; }
+</style>
+</head>
+<body>
+
+<div class="info-panel" id="infoPanel">
+  <div class="title" id="infoTitle">加载中…</div>
+  <div class="meta" id="infoMeta"></div>
+</div>
+
+<div class="canvas-wrapper" id="canvasWrapper">
+  <div class="canvas-content" id="canvasContent"></div>
+  <div class="spinner-overlay" id="spinner"><div class="spinner"></div></div>
+  <div class="error-overlay hidden" id="errorOverlay">
+    <div class="error-icon">⚠️</div>
+    <div class="error-text">图表加载失败</div>
+  </div>
+</div>
+
+<div class="zoom-indicator" id="zoomIndicator">100%</div>
+
+<div class="tabs-bar" id="tabsBar"></div>
+
+<script>
+(function() {
+  const MIN_ZOOM = 0.25, MAX_ZOOM = 4;
+  const wrapper = document.getElementById('canvasWrapper');
+  const content = document.getElementById('canvasContent');
+  const spinnerEl = document.getElementById('spinner');
+  const errorEl = document.getElementById('errorOverlay');
+  const zoomEl = document.getElementById('zoomIndicator');
+  const infoTitle = document.getElementById('infoTitle');
+  const infoMeta = document.getElementById('infoMeta');
+  const tabsBar = document.getElementById('tabsBar');
+
+  let data = null;
+  let currentPage = 0;
+  let scale = 1, tx = 0, ty = 0;
+  let isDragging = false, dragStartX = 0, dragStartY = 0, dragTxStart = 0, dragTyStart = 0;
+  let contentW = 0, contentH = 0;
+
+  function applyTransform() {
+    content.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + scale + ')';
+    zoomEl.textContent = Math.round(scale * 100) + '%';
+  }
+
+  function fitToView() {
+    if (!contentW || !contentH) return;
+    var ww = wrapper.clientWidth, wh = wrapper.clientHeight;
+    var pad = 40;
+    scale = Math.min((ww - pad) / contentW, (wh - pad) / contentH, 1);
+    scale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, scale));
+    tx = (ww - contentW * scale) / 2;
+    ty = (wh - contentH * scale) / 2;
+    applyTransform();
+  }
+
+  function showSpinner() { spinnerEl.classList.remove('hidden'); errorEl.classList.add('hidden'); }
+  function hideSpinner() { spinnerEl.classList.add('hidden'); }
+  function showError() { hideSpinner(); errorEl.classList.remove('hidden'); }
+
+  function updateInfo(page) {
+    infoTitle.textContent = data.title || 'Diagram';
+    var parts = [];
+    if (data.type) parts.push(data.type);
+    if (page) {
+      var w = page.width, h = page.height;
+      if (w && h) parts.push(w + ' × ' + h);
+      parts.push(page.format.toUpperCase());
+    }
+    infoMeta.textContent = parts.join('  ·  ');
+  }
+
+  function loadPage(idx) {
+    currentPage = idx;
+    var page = data.pages[idx];
+    content.innerHTML = '';
+    showSpinner();
+    updateInfo(page);
+
+    // Update tab active state
+    var btns = tabsBar.querySelectorAll('.tab-btn');
+    btns.forEach(function(b, i) { b.classList.toggle('active', i === idx); });
+
+    if (page.format === 'svg') {
+      loadSVG(page);
+    } else {
+      loadImage(page);
+    }
+  }
+
+  function loadImage(page) {
+    var img = new Image();
+    img.onload = function() {
+      contentW = page.width || img.naturalWidth;
+      contentH = page.height || img.naturalHeight;
+      img.width = contentW;
+      img.height = contentH;
+      content.appendChild(img);
+      hideSpinner();
+      fitToView();
+    };
+    img.onerror = function() { showError(); };
+    img.src = page.imageUrl;
+  }
+
+  function loadSVG(page) {
+    fetch(page.imageUrl)
+      .then(function(r) { if (!r.ok) throw new Error(r.status); return r.text(); })
+      .then(function(svgText) {
+        var div = document.createElement('div');
+        div.className = 'svg-container';
+        div.innerHTML = svgText;
+        var svg = div.querySelector('svg');
+        if (svg) {
+          contentW = page.width || parseFloat(svg.getAttribute('width')) || 800;
+          contentH = page.height || parseFloat(svg.getAttribute('height')) || 600;
+          svg.setAttribute('width', contentW);
+          svg.setAttribute('height', contentH);
+        } else {
+          contentW = page.width || 800;
+          contentH = page.height || 600;
+        }
+        content.appendChild(div);
+        hideSpinner();
+        fitToView();
+      })
+      .catch(function() { showError(); });
+  }
+
+  function buildTabs() {
+    tabsBar.innerHTML = '';
+    if (!data.pages || data.pages.length <= 1) {
+      tabsBar.classList.remove('visible');
+      return;
+    }
+    tabsBar.classList.add('visible');
+    data.pages.forEach(function(page, i) {
+      var btn = document.createElement('button');
+      btn.className = 'tab-btn' + (i === 0 ? ' active' : '');
+      btn.textContent = page.name || ('Page ' + (i + 1));
+      btn.addEventListener('click', function() { loadPage(i); });
+      tabsBar.appendChild(btn);
+    });
+  }
+
+  // --- Mouse wheel zoom (centered on cursor) ---
+  wrapper.addEventListener('wheel', function(e) {
+    e.preventDefault();
+    var rect = wrapper.getBoundingClientRect();
+    var mx = e.clientX - rect.left;
+    var my = e.clientY - rect.top;
+
+    var oldScale = scale;
+    var delta = e.deltaY > 0 ? 0.9 : 1.1;
+    scale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, scale * delta));
+
+    // Adjust translation so zoom centers on mouse position
+    tx = mx - (mx - tx) * (scale / oldScale);
+    ty = my - (my - ty) * (scale / oldScale);
+    applyTransform();
+  }, { passive: false });
+
+  // --- Drag pan ---
+  wrapper.addEventListener('mousedown', function(e) {
+    if (e.button !== 0) return;
+    isDragging = true;
+    dragStartX = e.clientX; dragStartY = e.clientY;
+    dragTxStart = tx; dragTyStart = ty;
+    wrapper.classList.add('dragging');
+    e.preventDefault();
+  });
+  window.addEventListener('mousemove', function(e) {
+    if (!isDragging) return;
+    tx = dragTxStart + (e.clientX - dragStartX);
+    ty = dragTyStart + (e.clientY - dragStartY);
+    applyTransform();
+  });
+  window.addEventListener('mouseup', function() {
+    if (isDragging) { isDragging = false; wrapper.classList.remove('dragging'); }
+  });
+
+  // --- Touch pan & pinch ---
+  var lastTouchDist = 0, lastTouchMid = null;
+  wrapper.addEventListener('touchstart', function(e) {
+    if (e.touches.length === 1) {
+      isDragging = true;
+      dragStartX = e.touches[0].clientX; dragStartY = e.touches[0].clientY;
+      dragTxStart = tx; dragTyStart = ty;
+    } else if (e.touches.length === 2) {
+      isDragging = false;
+      var dx = e.touches[1].clientX - e.touches[0].clientX;
+      var dy = e.touches[1].clientY - e.touches[0].clientY;
+      lastTouchDist = Math.sqrt(dx*dx + dy*dy);
+      lastTouchMid = { x: (e.touches[0].clientX+e.touches[1].clientX)/2,
+                        y: (e.touches[0].clientY+e.touches[1].clientY)/2 };
+    }
+    e.preventDefault();
+  }, { passive: false });
+  wrapper.addEventListener('touchmove', function(e) {
+    if (e.touches.length === 1 && isDragging) {
+      tx = dragTxStart + (e.touches[0].clientX - dragStartX);
+      ty = dragTyStart + (e.touches[0].clientY - dragStartY);
+      applyTransform();
+    } else if (e.touches.length === 2 && lastTouchDist) {
+      var dx = e.touches[1].clientX - e.touches[0].clientX;
+      var dy = e.touches[1].clientY - e.touches[0].clientY;
+      var dist = Math.sqrt(dx*dx + dy*dy);
+      var rect = wrapper.getBoundingClientRect();
+      var mid = { x: (e.touches[0].clientX+e.touches[1].clientX)/2 - rect.left,
+                  y: (e.touches[0].clientY+e.touches[1].clientY)/2 - rect.top };
+      var oldScale = scale;
+      scale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, scale * (dist / lastTouchDist)));
+      tx = mid.x - (mid.x - tx) * (scale / oldScale);
+      ty = mid.y - (mid.y - ty) * (scale / oldScale);
+      lastTouchDist = dist;
+      applyTransform();
+    }
+    e.preventDefault();
+  }, { passive: false });
+  wrapper.addEventListener('touchend', function() { isDragging = false; lastTouchDist = 0; });
+
+  // --- Double-click to fit ---
+  wrapper.addEventListener('dblclick', function(e) { e.preventDefault(); fitToView(); });
+
+  // --- Window resize ---
+  window.addEventListener('resize', function() { fitToView(); });
+
+  // --- Init ---
+  if (window.__SKILL_DATA__) {
+    data = window.__SKILL_DATA__;
+    if (!data.pages || !data.pages.length) { showError(); } else { buildTabs(); loadPage(0); }
+  } else {
+    fetch('./data.json')
+      .then(function(r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function(d) {
+        data = d;
+        if (!data.pages || !data.pages.length) { showError(); return; }
+        buildTabs();
+        loadPage(0);
+      })
+      .catch(function() {
+        infoTitle.textContent = '加载失败';
+        showError();
+      });
+  }
+})();
+</script>
+</body>
+</html>
